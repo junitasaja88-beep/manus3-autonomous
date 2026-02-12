@@ -1,0 +1,14 @@
+node_modules
+dist
+src
+bin
+memory
+.git
+.env
+*.ts
+tsconfig.json
+pnpm-lock.yaml
+package-lock.json
+.npmignore
+.gitignore
+.env.example
