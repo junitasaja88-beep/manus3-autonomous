@@ -142,25 +142,26 @@ module.exports = async (req, res) => {
     }
 
     // /login <password> — authenticate
-    if (text.startsWith('/login')) {
+    if (text === '/login' || text.startsWith('/login ') || text.startsWith('/login@')) {
       if (!BOT_PASSWORD) {
-        // Kalau password belum di-set, semua boleh masuk
         authenticatedChats.add(chatId);
         await sendMessage(chatId, 'Login berhasil! Langsung chat aja.');
         return res.status(200).send('OK');
       }
 
-      const inputPassword = text.replace('/login', '').trim();
+      // Parse password: handle /login pw, /login@botname pw
+      const inputPassword = text.replace(/^\/login(@\S+)?\s*/, '').trim();
       if (!inputPassword) {
-        await sendMessage(chatId, 'Kirim: `/login <password>`');
+        await sendMessage(chatId, 'Kirim: `/login password`');
         return res.status(200).send('OK');
       }
 
-      if (inputPassword === BOT_PASSWORD) {
+      if (inputPassword === BOT_PASSWORD.trim()) {
         authenticatedChats.add(chatId);
         await sendMessage(chatId, 'Login berhasil! Sekarang kamu bisa chat dengan AI.');
         return res.status(200).send('OK');
       } else {
+        console.log(`Login failed for ${chatId}: got "${inputPassword}" expected "${BOT_PASSWORD.trim()}"`);
         await sendMessage(chatId, 'Password salah.');
         return res.status(200).send('OK');
       }
