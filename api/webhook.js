@@ -5,15 +5,16 @@
  * Set webhook via: https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://<domain>/api/webhook
  *
  * AI-powered: sends user messages to NVIDIA NIM API (Kimi K2) and returns AI response.
+ * Password-protected: user harus /login <password> dulu sebelum bisa chat.
  */
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const BOT_PASSWORD = process.env.BOT_PASSWORD || '';
 
-// Whitelist chat IDs — kosong = semua boleh, isi = cuma ID ini yang direspon
-// Set di Vercel env var: ALLOWED_CHAT_IDS=123456,789012
-const ALLOWED_IDS = (process.env.ALLOWED_CHAT_IDS || '').split(',').filter(Boolean).map(Number);
+// Session store — authenticated chat IDs (persist selama instance hidup)
+const authenticatedChats = new Set();
 
-// API key rotation — kalau satu kena rate limit, coba key lain
+// API key rotation
 const NVIDIA_KEYS = (process.env.NVIDIA_API_KEYS || process.env.NVIDIA_API_KEY || '').split(',').filter(Boolean);
 
 function getRandomKey() {
@@ -48,7 +49,6 @@ async function sendChatAction(chatId, action) {
 }
 
 async function callAI(userMessage) {
-  // Coba sampai 3 key berbeda kalau kena rate limit
   const tried = new Set();
   for (let attempt = 0; attempt < 3; attempt++) {
     let key = getRandomKey();
@@ -118,43 +118,87 @@ module.exports = async (req, res) => {
     const chatId = update.message.chat.id;
     const text = (update.message.text || '').trim();
 
-    // /myid — selalu bisa, biar tau chat ID sendiri
+    // /myid — selalu bisa
     if (text === '/myid') {
       await sendMessage(chatId, `Chat ID kamu: \`${chatId}\``);
       return res.status(200).send('OK');
     }
 
-    // Whitelist check — kalau ALLOWED_IDS di-set, cuma ID itu yang boleh
-    if (ALLOWED_IDS.length > 0 && !ALLOWED_IDS.includes(chatId)) {
-      await sendMessage(chatId, 'Maaf, bot ini private. Hubungi admin untuk akses.');
-      return res.status(200).send('OK');
-    }
-
-    // Handle commands
+    // /start — selalu bisa, kasih info login
     if (text === '/start') {
+      const loggedIn = authenticatedChats.has(chatId);
       await sendMessage(
         chatId,
-        '*Halo bro! Manus3 AI Agent di sini!*\n\n' +
-          'Saya AI-powered, jalan di Vercel 24/7.\n' +
-          'Langsung chat aja, saya jawab pakai AI.\n\n' +
+        '*Halo! Manus3 AI Agent di sini!*\n\n' +
+          (loggedIn
+            ? 'Kamu sudah login. Langsung chat aja!\n\n'
+            : 'Kirim `/login <password>` untuk mulai.\n\n') +
+          '/login — Login dengan password\n' +
+          '/logout — Logout\n' +
           '/status — Cek kondisi\n' +
           '/help — Lihat commands'
       );
-    } else if (text === '/status') {
+      return res.status(200).send('OK');
+    }
+
+    // /login <password> — authenticate
+    if (text.startsWith('/login')) {
+      if (!BOT_PASSWORD) {
+        // Kalau password belum di-set, semua boleh masuk
+        authenticatedChats.add(chatId);
+        await sendMessage(chatId, 'Login berhasil! Langsung chat aja.');
+        return res.status(200).send('OK');
+      }
+
+      const inputPassword = text.replace('/login', '').trim();
+      if (!inputPassword) {
+        await sendMessage(chatId, 'Kirim: `/login <password>`');
+        return res.status(200).send('OK');
+      }
+
+      if (inputPassword === BOT_PASSWORD) {
+        authenticatedChats.add(chatId);
+        await sendMessage(chatId, 'Login berhasil! Sekarang kamu bisa chat dengan AI.');
+        return res.status(200).send('OK');
+      } else {
+        await sendMessage(chatId, 'Password salah.');
+        return res.status(200).send('OK');
+      }
+    }
+
+    // /logout
+    if (text === '/logout') {
+      authenticatedChats.delete(chatId);
+      await sendMessage(chatId, 'Logout berhasil. Kirim `/login <password>` untuk masuk lagi.');
+      return res.status(200).send('OK');
+    }
+
+    // Cek authentication — kalau BOT_PASSWORD di-set, harus login dulu
+    if (BOT_PASSWORD && !authenticatedChats.has(chatId)) {
+      await sendMessage(chatId, 'Kirim `/login <password>` dulu untuk mulai.');
+      return res.status(200).send('OK');
+    }
+
+    // Handle commands (authenticated)
+    if (text === '/status') {
       await sendMessage(
         chatId,
         '*Manus3 — Status*\n\n' +
           'Platform: Vercel Serverless\n' +
           'Telegram: Connected\n' +
           'AI: NVIDIA NIM (Kimi K2)\n' +
-          'Mode: Autonomous 24/7'
+          'Mode: Autonomous 24/7\n' +
+          'Auth: Logged in'
       );
     } else if (text === '/help') {
       await sendMessage(
         chatId,
         '*Manus3 — Commands*\n\n' +
           '/start — Intro\n' +
+          '/login — Login\n' +
+          '/logout — Logout\n' +
           '/status — Cek kondisi\n' +
+          '/myid — Lihat chat ID\n' +
           '/help — Commands ini\n\n' +
           'Atau langsung chat biasa, saya jawab pakai AI!'
       );
