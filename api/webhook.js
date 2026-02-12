@@ -8,7 +8,13 @@
  */
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY;
+
+// API key rotation — kalau satu kena rate limit, coba key lain
+const NVIDIA_KEYS = (process.env.NVIDIA_API_KEYS || process.env.NVIDIA_API_KEY || '').split(',').filter(Boolean);
+
+function getRandomKey() {
+  return NVIDIA_KEYS[Math.floor(Math.random() * NVIDIA_KEYS.length)] || null;
+}
 
 const SYSTEM_PROMPT =
   'Anda adalah Manus3, AI agent yang berjalan 24/7 di Vercel. ' +
@@ -38,32 +44,54 @@ async function sendChatAction(chatId, action) {
 }
 
 async function callAI(userMessage) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 25000);
+  // Coba sampai 3 key berbeda kalau kena rate limit
+  const tried = new Set();
+  for (let attempt = 0; attempt < 3; attempt++) {
+    let key = getRandomKey();
+    while (key && tried.has(key) && tried.size < NVIDIA_KEYS.length) {
+      key = getRandomKey();
+    }
+    if (!key || tried.has(key)) break;
+    tried.add(key);
 
-  try {
-    const res = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${NVIDIA_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'moonshotai/kimi-k2-instruct-0905',
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: userMessage },
-        ],
-        max_tokens: 1024,
-      }),
-      signal: controller.signal,
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 25000);
 
-    const data = await res.json();
-    return data.choices?.[0]?.message?.content || null;
-  } finally {
-    clearTimeout(timeout);
+    try {
+      const res = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${key}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'moonshotai/kimi-k2-instruct-0905',
+          messages: [
+            { role: 'system', content: SYSTEM_PROMPT },
+            { role: 'user', content: userMessage },
+          ],
+          max_tokens: 1024,
+        }),
+        signal: controller.signal,
+      });
+
+      if (res.status === 429) {
+        console.log(`Key ${key.slice(0, 12)}... rate limited, trying next`);
+        clearTimeout(timeout);
+        continue;
+      }
+
+      const data = await res.json();
+      return data.choices?.[0]?.message?.content || null;
+    } catch (e) {
+      clearTimeout(timeout);
+      if (attempt === 2) throw e;
+      continue;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
+  return null;
 }
 
 module.exports = async (req, res) => {
@@ -119,7 +147,7 @@ module.exports = async (req, res) => {
       try {
         await sendChatAction(chatId, 'typing');
 
-        if (!NVIDIA_API_KEY) {
+        if (NVIDIA_KEYS.length === 0) {
           await sendMessage(chatId, 'AI belum dikonfigurasi. Hubungi admin.');
           return res.status(200).send('OK');
         }

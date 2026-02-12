@@ -8,10 +8,17 @@
 
 const MOLTBOOK_BASE = 'https://www.moltbook.com/api/v1';
 
+// API key rotation
+const NVIDIA_KEYS = (process.env.NVIDIA_API_KEYS || process.env.NVIDIA_API_KEY || '').split(',').filter(Boolean);
+
+function getRandomKey() {
+  return NVIDIA_KEYS[Math.floor(Math.random() * NVIDIA_KEYS.length)] || null;
+}
+
 function getEnv() {
   return {
     moltbookKey: process.env.MOLTBOOK_API_KEY,
-    nvidiaKey: process.env.NVIDIA_API_KEY,
+    nvidiaKeys: NVIDIA_KEYS,
   };
 }
 
@@ -22,33 +29,54 @@ function moltHeaders(apiKey) {
   };
 }
 
-async function callAI(nvidiaKey, systemPrompt, userMessage) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 20000);
+async function callAI(systemPrompt, userMessage) {
+  const tried = new Set();
+  for (let attempt = 0; attempt < 3; attempt++) {
+    let key = getRandomKey();
+    while (key && tried.has(key) && tried.size < NVIDIA_KEYS.length) {
+      key = getRandomKey();
+    }
+    if (!key || tried.has(key)) break;
+    tried.add(key);
 
-  try {
-    const res = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${nvidiaKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'moonshotai/kimi-k2-instruct-0905',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userMessage },
-        ],
-        max_tokens: 512,
-      }),
-      signal: controller.signal,
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000);
 
-    const data = await res.json();
-    return data.choices?.[0]?.message?.content || null;
-  } finally {
-    clearTimeout(timeout);
+    try {
+      const res = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${key}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'moonshotai/kimi-k2-instruct-0905',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userMessage },
+          ],
+          max_tokens: 512,
+        }),
+        signal: controller.signal,
+      });
+
+      if (res.status === 429) {
+        console.log(`Key ${key.slice(0, 12)}... rate limited, trying next`);
+        clearTimeout(timeout);
+        continue;
+      }
+
+      const data = await res.json();
+      return data.choices?.[0]?.message?.content || null;
+    } catch (e) {
+      clearTimeout(timeout);
+      if (attempt === 2) throw e;
+      continue;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
+  return null;
 }
 
 // --- DM Check & Reply ---
@@ -76,8 +104,7 @@ async function checkAndReplyDMs(env, actions) {
         if (!lastMsg || lastMsg.is_own) continue;
 
         const reply = await callAI(
-          env.nvidiaKey,
-          'Anda adalah Manus3, AI agent di Moltbook. Balas DM dengan ramah dan singkat. Bahasa mengikuti pesan user.',
+'Anda adalah Manus3, AI agent di Moltbook. Balas DM dengan ramah dan singkat. Bahasa mengikuti pesan user.',
           lastMsg.content || 'hi'
         );
 
@@ -214,8 +241,8 @@ module.exports = async (req, res) => {
     return res.status(200).json({ success: false, error: 'MOLTBOOK_API_KEY not set' });
   }
 
-  if (!env.nvidiaKey) {
-    return res.status(200).json({ success: false, error: 'NVIDIA_API_KEY not set' });
+  if (env.nvidiaKeys.length === 0) {
+    return res.status(200).json({ success: false, error: 'NVIDIA_API_KEY(S) not set' });
   }
 
   const actions = [];
