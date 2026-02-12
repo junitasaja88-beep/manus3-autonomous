@@ -6,10 +6,14 @@
  *
  * AI-powered: sends user messages to NVIDIA NIM API (Kimi K2) and returns AI response.
  * Password-protected: user harus /login <password> dulu sebelum bisa chat.
+ * Gateway: /terminal, /agent, /gateway commands for local terminal access.
  */
+
+const redis = require('./lib/redis');
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const BOT_PASSWORD = process.env.BOT_PASSWORD || '';
+const TASK_TTL = 300;
 
 // Session store — authenticated chat IDs (persist selama instance hidup)
 const authenticatedChats = new Set();
@@ -98,6 +102,37 @@ async function callAI(userMessage) {
   return null;
 }
 
+// --- Gateway Helpers ---
+
+async function queueTask(chatId, type, command) {
+  try {
+    const userCount = await redis.get(`ratelimit:${chatId}`) || '0';
+    if (parseInt(userCount) >= 5) {
+      return { ok: false, error: 'Too many pending tasks (max 5). Tunggu sebentar.' };
+    }
+
+    const taskId = `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const task = { id: taskId, chatId, type, command, createdAt: new Date().toISOString() };
+
+    await redis.set(`task:${taskId}`, JSON.stringify(task), TASK_TTL);
+    await redis.lpush('tasks:pending', JSON.stringify(task));
+    await redis.incr(`ratelimit:${chatId}`);
+    await redis.expire(`ratelimit:${chatId}`, 60);
+
+    return { ok: true, taskId };
+  } catch (e) {
+    console.error('Queue task error:', e);
+    return { ok: false, error: e.message };
+  }
+}
+
+async function isGatewayOnline() {
+  try {
+    const heartbeat = await redis.get('gateway:heartbeat');
+    return !!heartbeat;
+  } catch { return false; }
+}
+
 module.exports = async (req, res) => {
   if (req.method === 'GET') {
     return res.status(200).json({ ok: true, endpoint: 'telegram-webhook' });
@@ -182,13 +217,17 @@ module.exports = async (req, res) => {
 
     // Handle commands (authenticated)
     if (text === '/status') {
+      const online = await isGatewayOnline();
+      const pending = await redis.llen('tasks:pending') || 0;
       await sendMessage(
         chatId,
         '*Manus3 — Status*\n\n' +
           'Platform: Vercel Serverless\n' +
           'Telegram: Connected\n' +
           'AI: NVIDIA NIM (Kimi K2)\n' +
-          'Mode: Autonomous 24/7\n' +
+          `Gateway: ${online ? 'Online' : 'Offline'}\n` +
+          `Pending tasks: ${pending}\n` +
+          `Mode: ${online ? 'Terminal + AI' : 'AI Only'}\n` +
           'Auth: Logged in'
       );
     } else if (text === '/help') {
@@ -201,8 +240,69 @@ module.exports = async (req, res) => {
           '/status — Cek kondisi\n' +
           '/myid — Lihat chat ID\n' +
           '/help — Commands ini\n\n' +
+          '*Terminal (butuh gateway):*\n' +
+          '/terminal <cmd> — Jalankan command\n' +
+          '/run <cmd> — Alias /terminal\n' +
+          '/agent <msg> — AI + terminal\n' +
+          '/gateway — Cek status gateway\n\n' +
           'Atau langsung chat biasa, saya jawab pakai AI!'
       );
+    } else if (text === '/gateway') {
+      const online = await isGatewayOnline();
+      const pending = await redis.llen('tasks:pending') || 0;
+      if (online) {
+        await sendMessage(chatId, `*Gateway: ONLINE*\nPending tasks: ${pending}\n\nSiap menerima /terminal dan /agent!`);
+      } else {
+        await sendMessage(chatId, `*Gateway: OFFLINE*\nPending tasks: ${pending}\n\nJalankan \`node gateway/client.js\` di PC lokal.`);
+      }
+    } else if (text.startsWith('/terminal ') || text.startsWith('/run ')) {
+      const cmd = text.replace(/^\/(terminal|run)\s*/, '').trim();
+      if (!cmd) {
+        await sendMessage(chatId, 'Usage: /terminal <command>\nContoh: /terminal dir');
+      } else {
+        const online = await isGatewayOnline();
+        if (!online) {
+          await sendMessage(chatId, 'Gateway offline. Jalankan `node gateway/client.js` di PC lokal.\n\nSementara dijawab pakai AI...');
+          try {
+            await sendChatAction(chatId, 'typing');
+            const aiResp = await callAI(`User ingin menjalankan terminal command: ${cmd}. Jelaskan apa yang command ini lakukan.`);
+            if (aiResp) await sendMessage(chatId, aiResp);
+          } catch {}
+        } else {
+          const result = await queueTask(chatId, 'command', cmd);
+          if (result.ok) {
+            await sendMessage(chatId, `Sending to terminal...\nCommand: \`${cmd}\``);
+          } else {
+            await sendMessage(chatId, `Gagal: ${result.error}`);
+          }
+        }
+      }
+    } else if (text === '/terminal' || text === '/run') {
+      await sendMessage(chatId, 'Usage: /terminal <command>\nContoh: /terminal dir');
+    } else if (text.startsWith('/agent ')) {
+      const msg = text.replace(/^\/agent\s*/, '').trim();
+      if (!msg) {
+        await sendMessage(chatId, 'Usage: /agent <message>\nContoh: /agent buatkan file hello.txt');
+      } else {
+        const online = await isGatewayOnline();
+        if (!online) {
+          await sendMessage(chatId, 'Gateway offline. Sementara dijawab pakai AI...');
+          try {
+            await sendChatAction(chatId, 'typing');
+            const aiResp = await callAI(msg);
+            if (aiResp) await sendMessage(chatId, aiResp);
+          } catch {}
+        } else {
+          const result = await queueTask(chatId, 'agent', msg);
+          if (result.ok) {
+            await sendMessage(chatId, `Sending to agent...\nMessage: "${msg}"`);
+          } else {
+            await sendMessage(chatId, `Gagal: ${result.error}`);
+          }
+        }
+      }
+    } else if (text === '/agent') {
+      await sendMessage(chatId, 'Usage: /agent <message>\nContoh: /agent buatkan file hello.txt');
     } else if (text) {
       // AI-powered reply
       try {
