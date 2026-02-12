@@ -9,6 +9,10 @@
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
+// Whitelist chat IDs — kosong = semua boleh, isi = cuma ID ini yang direspon
+// Set di Vercel env var: ALLOWED_CHAT_IDS=123456,789012
+const ALLOWED_IDS = (process.env.ALLOWED_CHAT_IDS || '').split(',').filter(Boolean).map(Number);
+
 // API key rotation — kalau satu kena rate limit, coba key lain
 const NVIDIA_KEYS = (process.env.NVIDIA_API_KEYS || process.env.NVIDIA_API_KEY || '').split(',').filter(Boolean);
 
@@ -113,6 +117,18 @@ module.exports = async (req, res) => {
   if (update.message) {
     const chatId = update.message.chat.id;
     const text = (update.message.text || '').trim();
+
+    // /myid — selalu bisa, biar tau chat ID sendiri
+    if (text === '/myid') {
+      await sendMessage(chatId, `Chat ID kamu: \`${chatId}\``);
+      return res.status(200).send('OK');
+    }
+
+    // Whitelist check — kalau ALLOWED_IDS di-set, cuma ID itu yang boleh
+    if (ALLOWED_IDS.length > 0 && !ALLOWED_IDS.includes(chatId)) {
+      await sendMessage(chatId, 'Maaf, bot ini private. Hubungi admin untuk akses.');
+      return res.status(200).send('OK');
+    }
 
     // Handle commands
     if (text === '/start') {
