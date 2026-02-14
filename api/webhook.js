@@ -9,6 +9,8 @@
  */
 
 const fs = require('fs');
+const { getSkillHints } = require('./skills');
+const memory = require('./memorysistem');
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const BOT_PASSWORD = process.env.BOT_PASSWORD || '';
@@ -156,57 +158,50 @@ const SYSTEM_PROMPT =
   'Kalau user pakai Bahasa Indonesia, jawab dalam Bahasa Indonesia. ' +
   'Jaga jawaban tetap ringkas dan berguna.';
 
-// System prompt for detecting PC commands from natural language — AUTONOMOUS VERSION
-const PC_DETECT_PROMPT = `Kamu adalah AI agent yang TERKONEKSI LANGSUNG ke terminal PC Windows user via local agent.
-Kamu punya pengetahuan lengkap tentang Windows commands (cmd, powershell, wmic, dll). Gunakan pengetahuanmu sendiri untuk generate command yang tepat.
+// System prompt for detecting PC commands — AUTONOMOUS + SKILLS INJECTION
+const PC_DETECT_BASE = `Kamu adalah AI agent yang TERKONEKSI LANGSUNG ke terminal PC Windows user via local agent.
+Kamu punya pengetahuan lengkap tentang Windows commands. Gunakan pengetahuanmu sendiri untuk generate command yang tepat.
 
 PC INFO: Windows 10, User: cc, Home: C:\\\\Users\\\\cc, Audio folder: C:\\\\Users\\\\cc\\\\Downloads\\\\mp3
 
-TUGASMU: Tentukan apakah pesan user = PERINTAH PC atau CHAT BIASA. Respond HANYA dengan JSON murni (tanpa markdown/backtick).
+TUGASMU: Tentukan apakah pesan user = PERINTAH PC atau CHAT BIASA. Respond HANYA JSON murni (tanpa markdown/backtick).
 
-FORMAT OUTPUT (pilih salah satu):
+FORMAT OUTPUT:
 {"action":"open","target":"<url/app>","reply":"<pesan singkat>"}
-{"action":"shell","command":"<windows cmd/powershell command>","reply":"<pesan singkat>"}
-{"action":"playaudio","filepath":"<path file/folder>","reply":"<pesan singkat>"}
+{"action":"shell","command":"<windows command>","reply":"<pesan singkat>"}
+{"action":"playaudio","filepath":"<path>","reply":"<pesan singkat>"}
 {"action":"screenshot","reply":"<pesan singkat>"}
 {"action":"sendfile","filepath":"<path>","reply":"<pesan singkat>"}
 {"action":"readfile","filepath":"<path>","reply":"<pesan singkat>"}
-{"action":"reviewfile","filepath":"<path>","question":"<pertanyaan user>","reply":"<pesan singkat>"}
+{"action":"reviewfile","filepath":"<path>","question":"<pertanyaan>","reply":"<pesan singkat>"}
 {"action":"sysinfo","reply":"<pesan singkat>"}
-{"action":"randomvideo","query":"<keyword>","site":"<domain, default youtube.com>","reply":"<pesan singkat>"}
+{"action":"randomvideo","query":"<keyword>","site":"<domain>","reply":"<pesan singkat>"}
 {"action":"chat"}
 
 PANDUAN:
-- Kamu BEBAS generate command Windows apapun dari pengetahuanmu. Tidak perlu contoh — kamu sudah tau.
-- open = buka URL/website/app. target bisa domain (youtube.com) atau app name (notepad, calc).
-- shell = jalankan command terminal. Kamu tau cmd & powershell — generate command yang benar secara otonom.
-- playaudio = putar audio lokal dari PC. Jika folder → random pick. Default folder: C:\\\\Users\\\\cc\\\\Downloads\\\\mp3
-- screenshot = ambil screenshot PC.
-- sendfile = kirim file dari PC ke Telegram.
-- readfile = tampilkan isi file mentah ke user.
-- reviewfile = baca file lalu AI analisis/review/rangkum. Gunakan jika user tanya "tentang apa", "review", "rangkum", "jelaskan".
-- sysinfo = info hardware/OS PC.
-- randomvideo = cari & putar video random dari website. Default site: youtube.com. Bisa site apapun.
-- chat = pesan bukan perintah PC (obrolan biasa, pertanyaan, curhat).
+- Kamu BEBAS generate command Windows dari pengetahuanmu. Kamu sudah tau cmd & powershell.
+- JANGAN gunakan module/cmdlet yang tidak ada di Windows bawaan. Pakai HANYA built-in.
+- readfile = tampilkan isi file mentah. reviewfile = AI analisis/review file.
+- randomvideo default site = youtube.com.
+- playaudio = audio lokal. Jika folder → random pick.
 
-COMMAND HINTS (PC ini TIDAK punya nircmd/Get-AudioDevice — gunakan cara bawaan Windows):
-- Volume naik: powershell -c "(New-Object -ComObject WScript.Shell).SendKeys([char]175)"
-- Volume turun: powershell -c "(New-Object -ComObject WScript.Shell).SendKeys([char]174)"
-- Mute/unmute: powershell -c "(New-Object -ComObject WScript.Shell).SendKeys([char]173)"
-- Set volume ke persentase tertentu: gunakan SendKeys [char]173 (mute dulu) lalu kirim [char]175 berulang kali. Atau gunakan: powershell -c "$wsh = New-Object -ComObject WScript.Shell; $wsh.SendKeys([char]173); Start-Sleep -m 300; for($i=0;$i -lt <jumlah>;$i++){$wsh.SendKeys([char]175); Start-Sleep -m 50}"
-  Contoh volume ~50%: jumlah = 25. Volume ~20%: jumlah = 10.
-- Kalau user bilang "kecilkan", "turunin", "pelanin" tanpa angka spesifik → kirim SendKeys [char]174 beberapa kali: powershell -c "$wsh = New-Object -ComObject WScript.Shell; for($i=0;$i -lt 10;$i++){$wsh.SendKeys([char]174); Start-Sleep -m 50}"
-- Kalau user bilang "besarkan", "naikin", "kerasin" tanpa angka spesifik → kirim SendKeys [char]175 beberapa kali.
+PENTING: Output HANYA JSON murni. Satu baris. Tanpa backtick/penjelasan.`;
 
-ATURAN KEAMANAN:
-- Jangan scan seluruh drive (dir C:\\\\ /S). Scope ke C:\\\\Users\\\\cc atau folder spesifik.
-- Untuk shutdown/restart, selalu beri delay minimal 60 detik agar bisa dibatalkan.
-- Untuk file .bat/.exe/.cmd/.ps1, gunakan action "shell" dengan command: start "" "<path>", agar buka di window terpisah.
-- JANGAN gunakan module/cmdlet yang tidak ada di Windows bawaan (nircmd, Get-AudioDevice, dll). Pakai HANYA built-in Windows commands.
+// Build full prompt with skills injected
+function buildPCDetectPrompt() {
+  const skills = getSkillHints();
+  if (!skills) return PC_DETECT_BASE;
+  return PC_DETECT_BASE + '\n\nSKILLS & COMMAND HINTS:\n' + skills;
+}
 
-PENTING: Output HANYA JSON murni. Tanpa backtick. Tanpa penjelasan. Satu baris JSON saja.`;
+async function detectPCCommand(userMessage, chatId) {
+  const prompt = buildPCDetectPrompt();
+  // Inject recent chat history so AI remembers context
+  const historyText = memory.getHistoryText(chatId, 6);
+  const contextMsg = historyText
+    ? `[Percakapan sebelumnya]\n${historyText}\n\n[Pesan terbaru dari user]\n${userMessage}`
+    : userMessage;
 
-async function detectPCCommand(userMessage) {
   const tried = new Set();
   for (let attempt = 0; attempt < 2; attempt++) {
     let key = getRandomKey();
@@ -227,8 +222,8 @@ async function detectPCCommand(userMessage) {
         body: JSON.stringify({
           model: 'moonshotai/kimi-k2-instruct-0905',
           messages: [
-            { role: 'system', content: PC_DETECT_PROMPT },
-            { role: 'user', content: userMessage },
+            { role: 'system', content: prompt },
+            { role: 'user', content: contextMsg },
           ],
           max_tokens: 256,
           temperature: 0.1,
@@ -258,8 +253,17 @@ async function detectPCCommand(userMessage) {
   return { action: 'chat' };
 }
 
-async function callAI(userMessage, modelOverride) {
+async function callAI(userMessage, modelOverride, chatId) {
   const model = modelOverride || DEFAULT_MODEL;
+
+  // Build messages with memory context
+  const messages = [{ role: 'system', content: SYSTEM_PROMPT }];
+  if (chatId) {
+    const history = memory.getHistory(chatId, 10);
+    messages.push(...history);
+  }
+  messages.push({ role: 'user', content: userMessage });
+
   const tried = new Set();
   for (let attempt = 0; attempt < 3; attempt++) {
     let key = getRandomKey();
@@ -281,10 +285,7 @@ async function callAI(userMessage, modelOverride) {
         },
         body: JSON.stringify({
           model,
-          messages: [
-            { role: 'system', content: SYSTEM_PROMPT },
-            { role: 'user', content: userMessage },
-          ],
+          messages,
           max_tokens: 1024,
         }),
         signal: controller.signal,
@@ -821,7 +822,10 @@ Kamu bertiga adalah AI bot berbeda tapi bisa saling baca chat. Singkat 1-3 kalim
         }
 
         // Step 1: Detect if this is a PC command
-        const detected = await detectPCCommand(text);
+        // Save user message to memory
+        memory.addMessage(chatId, 'user', text);
+
+        const detected = await detectPCCommand(text, chatId);
         console.log('Detected:', JSON.stringify(detected));
 
         if (detected.action === 'open' && detected.target) {
@@ -894,9 +898,10 @@ Kamu bertiga adalah AI bot berbeda tapi bisa saling baca chat. Singkat 1-3 kalim
           return res.status(200).send('OK');
         }
 
-        // Step 2: Not a PC command → regular AI chat
-        const aiResponse = await callAI(text, getChatModel(chatId));
+        // Step 2: Not a PC command → regular AI chat (with memory)
+        const aiResponse = await callAI(text, getChatModel(chatId), chatId);
         if (aiResponse) {
+          memory.addMessage(chatId, 'assistant', aiResponse);
           await sendMessage(chatId, aiResponse);
         } else {
           await sendMessage(chatId, 'Maaf, AI tidak memberikan respons. Coba lagi nanti.');
