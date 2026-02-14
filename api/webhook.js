@@ -181,9 +181,12 @@ FORMAT OUTPUT:
 PANDUAN:
 - Kamu BEBAS generate command Windows dari pengetahuanmu. Kamu sudah tau cmd & powershell.
 - JANGAN gunakan module/cmdlet yang tidak ada di Windows bawaan. Pakai HANYA built-in.
+- DILARANG: Get-AudioDevice, nircmd, AudioDeviceCmdlets — TIDAK ADA di PC ini. PASTI ERROR.
 - readfile = tampilkan isi file mentah. reviewfile = AI analisis/review file.
 - randomvideo default site = youtube.com.
 - playaudio = audio lokal. Jika folder → random pick.
+
+⚠️ WAJIB: Jika ada SKILLS & COMMAND HINTS di bawah, SELALU ikuti command yang tertulis di situ. JANGAN improvisasi command sendiri jika sudah ada di hints.
 
 PENTING: Output HANYA JSON murni. Satu baris. Tanpa backtick/penjelasan.`;
 
