@@ -4,5 +4,11 @@
       "path": "/api/cron",
       "schedule": "0 0 * * *"
     }
+  ],
+  "routes": [
+    { "src": "/api/gateway", "dest": "/api/gateway.js" },
+    { "src": "/api/webhook", "dest": "/api/webhook.js" },
+    { "src": "/api/health", "dest": "/api/health.js" },
+    { "src": "/api/cron", "dest": "/api/cron.js" }
   ]
 }
