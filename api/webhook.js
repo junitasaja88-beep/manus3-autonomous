@@ -189,10 +189,20 @@ PANDUAN:
 - randomvideo = cari & putar video random dari website. Default site: youtube.com. Bisa site apapun.
 - chat = pesan bukan perintah PC (obrolan biasa, pertanyaan, curhat).
 
+COMMAND HINTS (PC ini TIDAK punya nircmd/Get-AudioDevice — gunakan cara bawaan Windows):
+- Volume naik: powershell -c "(New-Object -ComObject WScript.Shell).SendKeys([char]175)"
+- Volume turun: powershell -c "(New-Object -ComObject WScript.Shell).SendKeys([char]174)"
+- Mute/unmute: powershell -c "(New-Object -ComObject WScript.Shell).SendKeys([char]173)"
+- Set volume ke persentase tertentu: gunakan SendKeys [char]173 (mute dulu) lalu kirim [char]175 berulang kali. Atau gunakan: powershell -c "$wsh = New-Object -ComObject WScript.Shell; $wsh.SendKeys([char]173); Start-Sleep -m 300; for($i=0;$i -lt <jumlah>;$i++){$wsh.SendKeys([char]175); Start-Sleep -m 50}"
+  Contoh volume ~50%: jumlah = 25. Volume ~20%: jumlah = 10.
+- Kalau user bilang "kecilkan", "turunin", "pelanin" tanpa angka spesifik → kirim SendKeys [char]174 beberapa kali: powershell -c "$wsh = New-Object -ComObject WScript.Shell; for($i=0;$i -lt 10;$i++){$wsh.SendKeys([char]174); Start-Sleep -m 50}"
+- Kalau user bilang "besarkan", "naikin", "kerasin" tanpa angka spesifik → kirim SendKeys [char]175 beberapa kali.
+
 ATURAN KEAMANAN:
 - Jangan scan seluruh drive (dir C:\\\\ /S). Scope ke C:\\\\Users\\\\cc atau folder spesifik.
 - Untuk shutdown/restart, selalu beri delay minimal 60 detik agar bisa dibatalkan.
 - Untuk file .bat/.exe/.cmd/.ps1, gunakan action "shell" dengan command: start "" "<path>", agar buka di window terpisah.
+- JANGAN gunakan module/cmdlet yang tidak ada di Windows bawaan (nircmd, Get-AudioDevice, dll). Pakai HANYA built-in Windows commands.
 
 PENTING: Output HANYA JSON murni. Tanpa backtick. Tanpa penjelasan. Satu baris JSON saja.`;
 
