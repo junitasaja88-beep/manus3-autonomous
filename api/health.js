@@ -6,7 +6,7 @@
 module.exports = (req, res) => {
   res.status(200).json({
     status: 'online',
-    agent: 'Manus3',
+    agent: 'Manus3Smart',
     timestamp: new Date().toISOString(),
   });
 };

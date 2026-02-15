@@ -8,7 +8,7 @@
  * POST {action:"heartbeat", secret} — update gateway heartbeat
  */
 
-const redis = require('./lib/redis');
+const redis = require('./_lib/redis');
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const GATEWAY_SECRET = process.env.GATEWAY_SECRET;

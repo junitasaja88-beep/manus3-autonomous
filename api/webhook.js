@@ -9,8 +9,8 @@
  */
 
 const fs = require('fs');
-const { getSkillHints } = require('./skills');
-const memory = require('./memorysistem');
+const { getSkillHints } = require('./_skills');
+const memory = require('./_memorysistem');
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const BOT_PASSWORD = process.env.BOT_PASSWORD || '';
@@ -148,7 +148,7 @@ function getRandomKey() {
 }
 
 const SYSTEM_PROMPT =
-  'Anda adalah Manus3, AI agent canggih yang berjalan 24/7 di Vercel dan TERKONEKSI ke PC user via local agent. ' +
+  'Anda adalah Manus3Smart, AI agent canggih yang berjalan 24/7 di Vercel dan TERKONEKSI ke PC user via local agent. ' +
   'Kemampuan kamu: (1) Chat AI biasa, (2) Buka website/app di PC user, (3) Jalankan command terminal di PC, ' +
   '(4) Baca & review file di PC, (5) Kirim file dari PC ke Telegram, (6) Screenshot PC, (7) Control volume, ' +
   '(8) Buat file baru, (9) Lihat system info PC. ' +
@@ -521,14 +521,14 @@ Jawab pertanyaan user tentang file ini. Jawab dalam bahasa yang sama dengan pert
     const isGroup = chatType === 'group' || chatType === 'supergroup';
 
     // Load shared config (with fallback defaults)
-    let _bc; try { _bc = require('./bot-config'); } catch { _bc = {}; }
+    let _bc; try { _bc = require('./_bot-config'); } catch { _bc = {}; }
     const BOT_REPLY_CHANCE = _bc.BOT_REPLY_CHANCE || 0.35;
     const USER_CHIME_CHANCE = _bc.USER_CHIME_CHANCE || 0.15;
     const COOLDOWN_MS_VAL = _bc.COOLDOWN_MS || 60000;
     const BOTS = _bc.BOTS || { 'my_Chichi_bot': { name: 'Chichi' }, 'manus3bot': { name: 'Clara' }, 'Manus3_bot': { name: 'Kiara' } };
 
-    const botUsername = 'manus3bot';
-    const MY_NAME = (BOTS[botUsername] || {}).name || 'Claudia';
+    const botUsername = 'manus3smartsuper_bot';
+    const MY_NAME = (BOTS[botUsername] || {}).name || 'Manus3Smart';
     const BOT_FRIENDS = Object.keys(BOTS);
     const FRIEND_NAMES = {}; for (const [u, b] of Object.entries(BOTS)) FRIEND_NAMES[u] = b.name;
 
@@ -566,8 +566,8 @@ Jawab pertanyaan user tentang file ini. Jawab dalam bahasa yang sama dengan pert
       const fromUsername = fromUser.username || '';
       const isFromFriendBot = BOT_FRIENDS.includes(fromUsername) && fromUsername !== botUsername;
       const friendName = FRIEND_NAMES[fromUsername] || fromName;
-      const mentionsMe = text.toLowerCase().includes('claudia') || text.toLowerCase().includes('manus3') ||
-        text.includes(`@${botUsername}`) || text.includes('@manus3bot');
+      const mentionsMe = text.toLowerCase().includes('manus3smart') ||
+        text.includes(`@${botUsername}`) || text.includes('@manus3smartsuper_bot');
       const isReplyToMe = update.message.reply_to_message?.from?.username === botUsername;
 
       // Cooldown: prevent bot ping-pong (60s cooldown after replying to a bot)
@@ -650,7 +650,7 @@ Kamu bertiga adalah AI bot berbeda tapi bisa saling baca chat. Singkat 1-3 kalim
       const loggedIn = authenticatedChats.has(chatId);
       await sendMessage(
         chatId,
-        '*Halo! Manus3 AI Agent di sini!*\n\n' +
+        '*Halo! Manus3Smart Agent di sini!*\n\n' +
           (loggedIn
             ? 'Kamu sudah login. Langsung chat aja!\n\n'
             : 'Kirim `/login <password>` untuk mulai.\n\n') +
@@ -787,7 +787,7 @@ Kamu bertiga adalah AI bot berbeda tapi bisa saling baca chat. Singkat 1-3 kalim
     if (text === '/status') {
       await sendMessage(
         chatId,
-        '*Manus3 — Status*\n\n' +
+        '*Manus3Smart — Status*\n\n' +
           'Platform: Vercel Serverless\n' +
           'Telegram: Connected\n' +
           `AI Model: ${Object.values(AVAILABLE_MODELS).find(m => m.id === getChatModel(chatId))?.name || getChatModel(chatId)}\n` +
@@ -797,7 +797,7 @@ Kamu bertiga adalah AI bot berbeda tapi bisa saling baca chat. Singkat 1-3 kalim
     } else if (text === '/help') {
       await sendMessage(
         chatId,
-        '*Manus3 — Commands*\n\n' +
+        '*Manus3Smart — Commands*\n\n' +
           '*Chat & Info:*\n' +
           '/start — Intro\n' +
           '/login — Login\n' +
