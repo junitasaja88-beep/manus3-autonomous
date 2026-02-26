@@ -1043,79 +1043,46 @@ Kamu bertiga adalah AI bot berbeda tapi bisa saling baca chat. Singkat 1-3 kalim
         const xAllActions = ['post_x','reply_x','quote_x','like_x','unlike_x',
                              'read_replies','read_mentions','read_tweet','engage_tweet'];
         if (xAllActions.includes(detected.action)) {
-          const SKILL_DIR = 'D:/.agents/skills/baoyu-post-to-x/scripts';
-          const MANUS_DIR = 'D:/manus3';
-          const CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
+          const SD = 'D:/.agents/skills/baoyu-post-to-x/scripts';
+          const CH = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
           let scriptContent = '';
 
           if (detected.action === 'post_x') {
-            const txt = (detected.text || '').replace(/'/g, "\\'").replace(/\\/g, '/');
-            const imgs = (detected.images || []).map(p => `'--image', '${p}'`).join(', ');
-            scriptContent = `
-const {execFileSync} = require('child_process');
-require('dotenv').config({path:'${MANUS_DIR}/.env'});
-execFileSync('npx',['-y','bun','${SKILL_DIR}/x-browser.ts','${txt}',${imgs},'--submit'],
-  {stdio:'inherit',shell:true,env:{...process.env,X_BROWSER_CHROME_PATH:'${CHROME}'}});
-`.trim();
+            const txt = (detected.text || '').replace(/"/g, '\\"');
+            const imgs = (detected.images || []).map(p => `,"${p}"`).join('');
+            scriptContent = `require("dotenv").config({path:"D:/manus3/.env"});const {execFileSync}=require("child_process");execFileSync("npx",["-y","bun","${SD}/x-browser.ts","${txt}"${imgs},"--submit"],{stdio:"inherit",shell:true,env:{...process.env,X_BROWSER_CHROME_PATH:"${CH}"}});`;
 
           } else if (detected.action === 'reply_x') {
-            const txt = (detected.text || '').replace(/'/g, "\\'");
-            scriptContent = `
-const {execFileSync} = require('child_process');
-require('dotenv').config({path:'${MANUS_DIR}/.env'});
-execFileSync('npx',['-y','bun','${SKILL_DIR}/x-reply.ts','${detected.tweetUrl}','${txt}','--submit'],
-  {stdio:'inherit',shell:true,env:{...process.env,X_BROWSER_CHROME_PATH:'${CHROME}'}});
-`.trim();
+            const txt = (detected.text || '').replace(/"/g, '\\"');
+            scriptContent = `require("dotenv").config({path:"D:/manus3/.env"});const {execFileSync}=require("child_process");execFileSync("npx",["-y","bun","${SD}/x-reply.ts","${detected.tweetUrl}","${txt}","--submit"],{stdio:"inherit",shell:true,env:{...process.env,X_BROWSER_CHROME_PATH:"${CH}"}});`;
 
           } else if (detected.action === 'like_x' || detected.action === 'unlike_x') {
-            const flag = detected.action === 'unlike_x' ? `,'--unlike'` : '';
-            scriptContent = `
-const {execFileSync} = require('child_process');
-execFileSync('npx',['-y','bun','${SKILL_DIR}/x-like.ts','${detected.tweetUrl}'${flag}],
-  {stdio:'inherit',shell:true,env:{...process.env,X_BROWSER_CHROME_PATH:'${CHROME}'}});
-`.trim();
+            const flag = detected.action === 'unlike_x' ? ',"--unlike"' : '';
+            scriptContent = `const {execFileSync}=require("child_process");execFileSync("npx",["-y","bun","${SD}/x-like.ts","${detected.tweetUrl}"${flag}],{stdio:"inherit",shell:true,env:{...process.env,X_BROWSER_CHROME_PATH:"${CH}"}});`;
 
           } else if (detected.action === 'read_replies') {
-            scriptContent = `
-const {execFileSync} = require('child_process');
-execFileSync('npx',['-y','bun','${SKILL_DIR}/x-read-replies.ts','${detected.tweetUrl}','--limit','${detected.limit||10}'],
-  {stdio:'inherit',shell:true,env:{...process.env,X_BROWSER_CHROME_PATH:'${CHROME}'}});
-`.trim();
+            scriptContent = `const {execFileSync}=require("child_process");execFileSync("npx",["-y","bun","${SD}/x-read-replies.ts","${detected.tweetUrl}","--limit","${detected.limit||10}"],{stdio:"inherit",shell:true,env:{...process.env,X_BROWSER_CHROME_PATH:"${CH}"}});`;
 
           } else if (detected.action === 'read_mentions') {
-            scriptContent = `
-const {execFileSync} = require('child_process');
-execFileSync('npx',['-y','bun','${SKILL_DIR}/x-mentions.ts','--limit','${detected.limit||10}'],
-  {stdio:'inherit',shell:true,env:{...process.env,X_BROWSER_CHROME_PATH:'${CHROME}'}});
-`.trim();
+            scriptContent = `const {execFileSync}=require("child_process");execFileSync("npx",["-y","bun","${SD}/x-mentions.ts","--limit","${detected.limit||10}"],{stdio:"inherit",shell:true,env:{...process.env,X_BROWSER_CHROME_PATH:"${CH}"}});`;
 
           } else if (detected.action === 'read_tweet') {
-            scriptContent = `
-const {execFileSync} = require('child_process');
-execFileSync('npx',['-y','bun','${SKILL_DIR}/x-read-tweet.ts','${detected.tweetUrl}'],
-  {stdio:'inherit',shell:true,env:{...process.env,X_BROWSER_CHROME_PATH:'${CHROME}'}});
-`.trim();
+            scriptContent = `const {execFileSync}=require("child_process");execFileSync("npx",["-y","bun","${SD}/x-read-tweet.ts","${detected.tweetUrl}"],{stdio:"inherit",shell:true,env:{...process.env,X_BROWSER_CHROME_PATH:"${CH}"}});`;
 
           } else if (detected.action === 'engage_tweet') {
             const persona = detected.persona || 'friendly';
             const lang = detected.lang || 'auto';
             const like = detected.autoLike ? 'true' : 'false';
-            scriptContent = `
-require('dotenv').config({path:'${MANUS_DIR}/.env'});
-const e = require('${MANUS_DIR}/public/skills/x-auto-engage');
-e.engageTweet('${detected.tweetUrl}',{persona:'${persona}',lang:'${lang}',autoLike:${like},submit:true})
-  .then(r=>console.log('Done! Comment:',r.comment))
-  .catch(err=>console.error(err.message));
-`.trim();
+            scriptContent = `require("dotenv").config({path:"D:/manus3/.env"});const e=require("D:/manus3/public/skills/x-auto-engage");e.engageTweet("${detected.tweetUrl}",{persona:"${persona}",lang:"${lang}",autoLike:${like},submit:true}).then(r=>console.log("Done:",r.comment)).catch(err=>console.error(err.message));`;
           }
 
           if (scriptContent) {
-            // Tulis ke temp file lalu jalankan via node — hindari backslash escaping
-            const tmpFile = `C:/Users/cc/AppData/Local/Temp/manus_x_${Date.now()}.js`;
-            const writeCmd = `powershell -Command "Set-Content -Path '${tmpFile}' -Value @'\n${scriptContent.replace(/'/g, "''")}\n'@ -Encoding UTF8"`;
-            const runCmd = `node "${tmpFile}"`;
-            pushCommand('shell', writeCmd, chatId);
-            pushCommand('shell', runCmd, chatId);
+            const ts = Date.now();
+            const tmpFile = `D:/manus3/tmp_x_${ts}.js`;
+            // Encode script as base64, decode + write + run — no escaping issues
+            const b64 = Buffer.from(scriptContent).toString('base64');
+            const cmd = `node -e "require('fs').writeFileSync('${tmpFile}',Buffer.from('${b64}','base64').toString())" && node "${tmpFile}"`;
+            pushCommand('shell', cmd, chatId);
             await sendMessage(chatId, detected.reply || `⏳ Mengirim ke PC lokal...`);
           }
           return res.status(200).send('OK');
