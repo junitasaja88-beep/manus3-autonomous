@@ -228,6 +228,7 @@ FORMAT OUTPUT (respond HANYA JSON murni, tanpa markdown/backtick):
 {"action":"read_tweet","tweetUrl":"<url tweet>","reply":"<pesan>"}
 {"action":"read_replies","tweetUrl":"<url tweet>","limit":10,"reply":"<pesan>"}
 {"action":"read_mentions","limit":10,"reply":"<pesan>"}
+{"action":"grok_chat","prompt":"<pertanyaan ke Grok AI>","wait":45,"reply":"<pesan>"}
 {"action":"chat"}
 
 PANDUAN OTONOM:
@@ -241,6 +242,8 @@ PANDUAN OTONOM:
 - "multi" action = jalankan beberapa command sekaligus berurutan.
 - "remember" action = simpan fakta penting tentang user ke long-term memory.
 - Jika user bilang "ingat bahwa...", "remember...", "jangan lupa...", gunakan action "remember".
+
+GROK AI — Untuk bertanya ke Grok AI (xAI), gunakan action "grok_chat". Grok bisa web search real-time, generate gambar, dll.
 
 TWITTER/X — ATURAN WAJIB: Jika user minta "tweet", "posting ke X/Twitter", "komentari tweet", "like tweet", "baca mentions", "balas tweet" — WAJIB gunakan action khusus: post_x, reply_x, like_x, unlike_x, engage_tweet, read_replies, read_mentions, read_tweet. DILARANG KERAS menggunakan action "shell" atau generate npx/bun command manual untuk Twitter. Pelanggaran ini akan menyebabkan error!
 
@@ -557,9 +560,19 @@ Jawab pertanyaan user tentang file ini. Jawab dalam bahasa yang sama dengan pert
           await sendMessage(cmd.chatId, `*File content:*\n\`\`\`\n${output.slice(0, 3500)}\n\`\`\``);
         }
       } else if (success) {
-        const text = output
-          ? `*PC Result:*\n\`\`\`\n${output.slice(0, 3500)}\n\`\`\``
-          : 'Done! Command executed.';
+        // Special: Grok response marker
+        const grokIdx = output ? output.indexOf('__GROK__:') : -1;
+        let text;
+        if (grokIdx !== -1) {
+          const grokResp = output.substring(grokIdx + '__GROK__:'.length).split('\n')[0].trim();
+          text = grokResp.length > 5
+            ? `🤖 *Grok AI:*\n${grokResp.slice(0, 3500)}`
+            : `*PC Result:*\n\`\`\`\n${(output||'').slice(0, 3500)}\n\`\`\``;
+        } else {
+          text = output
+            ? `*PC Result:*\n\`\`\`\n${output.slice(0, 3500)}\n\`\`\``
+            : 'Done! Command executed.';
+        }
         await sendMessage(cmd.chatId, text);
       } else {
         await sendMessage(cmd.chatId, `*Error:* ${error || 'Unknown error'}`);
@@ -1040,6 +1053,34 @@ Kamu bertiga adalah AI bot berbeda tapi bisa saling baca chat. Singkat 1-3 kalim
 
         // Handle semua aksi X/Twitter — queue ke local gateway (butuh Chrome di PC)
         // Pakai PowerShell + temp script file untuk hindari backslash escaping hell
+        // Handle grok_chat — kirim prompt ke Grok.com via CDP, return response ke Telegram
+        if (detected.action === 'grok_chat' && detected.prompt) {
+          const SD = 'D:/.agents/skills/baoyu-post-to-x/scripts';
+          const CH = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
+          const promptEsc = (detected.prompt || '').replace(/\\/g,'\\\\').replace(/"/g,'\\"').replace(/\n/g,' ');
+          const waitSecs = detected.wait || 45;
+          const scriptContent = `
+const {execSync}=require("child_process");
+try {
+  const result = execSync("npx -y bun \\"${SD}/grok-chat.ts\\" \\"${promptEsc}\\" --wait ${waitSecs}",
+    {timeout:${(waitSecs+30)*1000},shell:true,encoding:"utf8",
+     env:{...process.env,X_BROWSER_CHROME_PATH:"${CH}"}});
+  // Extract response after "=== GROK RESPONSE ==="
+  const marker = "=== GROK RESPONSE ===";
+  const idx = result.indexOf(marker);
+  const response = idx !== -1 ? result.substring(idx+marker.length).trim() : result.trim();
+  console.log("__GROK__:" + response);
+} catch(e) { console.error("GROK_ERROR:" + e.message.substring(0,200)); }
+`.trim();
+          const ts = Date.now();
+          const tmpFile = `D:/manus3/tmp_grok_${ts}.js`;
+          const b64 = Buffer.from(scriptContent).toString('base64');
+          const cmd = `node -e "require('fs').writeFileSync('${tmpFile}',Buffer.from('${b64}','base64').toString())" && node "${tmpFile}"`;
+          pushCommand('shell', cmd, chatId);
+          await sendMessage(chatId, detected.reply || `⏳ Mengirim ke Grok AI... (maks ${waitSecs}s)`);
+          return res.status(200).send('OK');
+        }
+
         const xAllActions = ['post_x','reply_x','quote_x','like_x','unlike_x',
                              'read_replies','read_mentions','read_tweet','engage_tweet'];
         if (xAllActions.includes(detected.action)) {

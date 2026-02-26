@@ -83,13 +83,21 @@ async function handleResult(body) {
 
   const resultText = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
   const maxLen = 4000;
-  const truncated = resultText.length > maxLen
-    ? resultText.substring(0, maxLen) + '\n\n... (truncated)'
-    : resultText;
 
-  const header = task.type === 'command'
-    ? `*Terminal Output:*\n\`\`\`\n${truncated}\n\`\`\``
-    : `*Agent Response:*\n${truncated}`;
+  // Special: Grok response marker
+  let header;
+  const grokMarkerIdx = resultText.indexOf('__GROK__:');
+  if (grokMarkerIdx !== -1) {
+    const grokResponse = resultText.substring(grokMarkerIdx + '__GROK__:'.length).split('\n')[0].trim();
+    header = `*🤖 Grok AI:*\n${grokResponse.length > maxLen ? grokResponse.substring(0, maxLen) + '...' : grokResponse}`;
+  } else {
+    const truncated = resultText.length > maxLen
+      ? resultText.substring(0, maxLen) + '\n\n... (truncated)'
+      : resultText;
+    header = task.type === 'command'
+      ? `*Terminal Output:*\n\`\`\`\n${truncated}\n\`\`\``
+      : `*Agent Response:*\n${truncated}`;
+  }
 
   await sendTelegram(task.chatId, header);
   await redis.del(`task:${taskId}`);
