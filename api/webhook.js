@@ -246,6 +246,7 @@ PANDUAN OTONOM:
 GROK AI — Untuk bertanya ke Grok AI (xAI), gunakan action "grok_chat". Grok bisa web search real-time, generate gambar, dll.
 
 TWITTER/X — ATURAN WAJIB: Jika user minta "tweet", "posting ke X/Twitter", "komentari tweet", "like tweet", "baca mentions", "balas tweet" — WAJIB gunakan action khusus: post_x, reply_x, like_x, unlike_x, engage_tweet, read_replies, read_mentions, read_tweet. DILARANG KERAS menggunakan action "shell" atau generate npx/bun command manual untuk Twitter. Pelanggaran ini akan menyebabkan error!
+PENTING — Jika user bilang "posting ke X", "share ke Twitter", "tweet itu", "posting berita itu", dll dan ada konten dari percakapan sebelumnya (dari Grok, dari hasil search, dll) — LANGSUNG buat tweet dari konten itu. Buat ringkasan menarik max 280 karakter lalu gunakan action post_x dengan text yang sudah siap. JANGAN tanya balik atau jelaskan caranya — langsung eksekusi!
 
 ⚠️ WAJIB: Jika ada SKILLS & COMMAND HINTS di bawah, PRIORITASKAN command dari situ. Tapi kamu BOLEH improvisasi jika skill tidak cover kebutuhan user.
 
