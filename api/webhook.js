@@ -19,8 +19,8 @@ const AGENT_SECRET = process.env.AGENT_SECRET || 'manus3secret';
 const NVIDIA_KEYS = (process.env.NVIDIA_API_KEYS || process.env.NVIDIA_API_KEY || '').split(',').filter(Boolean);
 
 const QUEUE_FILE = '/tmp/manus3_queue.json';
-const COMMAND_TTL = 5 * 60 * 1000;
-const MAX_QUEUE = 50;
+const COMMAND_TTL = 30 * 60 * 1000; // 30 min TTL (was 5 min)
+const MAX_QUEUE = 200; // was 50
 
 // === Session store ===
 const authenticatedChats = new Set();
@@ -123,15 +123,52 @@ function markDone(id, result) {
 
 // === Telegram helpers ===
 async function sendMessage(chatId, text) {
-  await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      chat_id: chatId,
-      text: text.slice(0, 4096),
-      parse_mode: 'Markdown',
-    }),
-  });
+  // Auto-split long messages (Telegram limit = 4096 chars)
+  const MAX_LEN = 4000; // slightly under 4096 for safety
+  if (text.length <= MAX_LEN) {
+    const resp = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'Markdown' }),
+    });
+    // Fallback: retry without Markdown if parse fails
+    if (!resp.ok) {
+      await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId, text }),
+      });
+    }
+    return;
+  }
+  // Split into chunks
+  const chunks = [];
+  let remaining = text;
+  while (remaining.length > 0) {
+    if (remaining.length <= MAX_LEN) {
+      chunks.push(remaining);
+      break;
+    }
+    // Try to split at last newline within limit
+    let splitAt = remaining.lastIndexOf('\n', MAX_LEN);
+    if (splitAt < MAX_LEN * 0.3) splitAt = MAX_LEN; // fallback to hard cut
+    chunks.push(remaining.slice(0, splitAt));
+    remaining = remaining.slice(splitAt).trimStart();
+  }
+  for (const chunk of chunks) {
+    const resp = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text: chunk, parse_mode: 'Markdown' }),
+    });
+    if (!resp.ok) {
+      await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId, text: chunk }),
+      });
+    }
+  }
 }
 
 async function sendChatAction(chatId, action) {
@@ -148,45 +185,56 @@ function getRandomKey() {
 }
 
 const SYSTEM_PROMPT =
-  'Anda adalah Manus3Smart, AI agent canggih yang berjalan 24/7 di Vercel dan TERKONEKSI ke PC user via local agent. ' +
-  'Kemampuan kamu: (1) Chat AI biasa, (2) Buka website/app di PC user, (3) Jalankan command terminal di PC, ' +
-  '(4) Baca & review file di PC, (5) Kirim file dari PC ke Telegram, (6) Screenshot PC, (7) Control volume, ' +
-  '(8) Buat file baru, (9) Lihat system info PC. ' +
-  'Kamu SUDAH terhubung ke terminal PC user lewat local agent yang polling command dari Vercel. ' +
-  'Jangan bilang kamu tidak bisa akses PC — kamu BISA. User tinggal chat biasa dan kamu otomatis mengeksekusi. ' +
-  'Anda cerdas, santai, lucu, dan membantu. Jawab dalam bahasa yang sama dengan user. ' +
-  'Kalau user pakai Bahasa Indonesia, jawab dalam Bahasa Indonesia. ' +
-  'Jaga jawaban tetap ringkas dan berguna.';
+  'Anda adalah Manus3Smart, AI agent OTONOM canggih yang berjalan 24/7 di Vercel dan TERKONEKSI PENUH ke PC user via local agent. ' +
+  'Kamu punya KONTROL PENUH atas PC user: terminal, file system, browser, apps, system settings, registry, services, dan SEMUA hal lainnya. ' +
+  'Kemampuan kamu TIDAK TERBATAS: (1) Chat AI dengan pengetahuan luas, (2) Buka website/app, (3) Jalankan ANY command terminal, ' +
+  '(4) Baca, tulis, edit, hapus file, (5) Kirim file ke Telegram, (6) Screenshot, (7) Control volume/brightness, ' +
+  '(8) Install software, (9) System info, (10) Network management, (11) Scheduled tasks, (12) Dan APAPUN yang bisa dilakukan via terminal. ' +
+  'Kamu SUDAH terhubung ke terminal PC user. Jangan bilang kamu tidak bisa — kamu BISA SEMUA. ' +
+  'Kamu punya MEMORY — kamu ingat percakapan sebelumnya dan fakta penting tentang user. Gunakan memorymu untuk jawab lebih personal dan kontekstual. ' +
+  'Jika user minta kamu ingat sesuatu, simpan ke long-term memory. ' +
+  'Anda cerdas, santai, lucu, helpful, dan punya inisiatif. Jawab dalam bahasa yang sama dengan user. ' +
+  'Jaga jawaban informatif tapi tidak bertele-tele. Kalau bisa bantu lebih dari yang diminta, lakukan.';
 
-// System prompt for detecting PC commands — AUTONOMOUS + SKILLS INJECTION
-const PC_DETECT_BASE = `Kamu adalah AI agent yang TERKONEKSI LANGSUNG ke terminal PC Windows user via local agent.
-Kamu punya pengetahuan lengkap tentang Windows commands. Gunakan pengetahuanmu sendiri untuk generate command yang tepat.
+// System prompt for detecting PC commands — FULLY AUTONOMOUS + SKILLS INJECTION
+const PC_DETECT_BASE = `Kamu adalah AI agent OTONOM yang TERKONEKSI LANGSUNG ke terminal PC Windows user via local agent.
+Kamu adalah model AI canggih dengan pengetahuan LENGKAP tentang Windows, PowerShell, CMD, registry, networking, scripting, dan SEMUA hal teknis.
+Kamu TIDAK dibatasi — gunakan SELURUH pengetahuanmu untuk generate command yang tepat dan kreatif.
 
-PC INFO: Windows 10, User: cc, Home: C:\\\\Users\\\\cc, Audio folder: C:\\\\Users\\\\cc\\\\Downloads\\\\mp3
+PC INFO: Windows 10 Pro, User: cc, Home: C:\\\\Users\\\\cc, Audio folder: C:\\\\Users\\\\cc\\\\Downloads\\\\mp3
+INSTALLED: Node.js, npm, git, Python, PowerShell 5.1+, Chrome, VS Code
 
-TUGASMU: Tentukan apakah pesan user = PERINTAH PC atau CHAT BIASA. Respond HANYA JSON murni (tanpa markdown/backtick).
+TUGASMU: Analisis pesan user secara CERDAS. Tentukan apakah itu PERINTAH PC atau CHAT BIASA.
+Kamu HARUS bisa memahami perintah dalam bahasa apapun (Indonesia, English, slang, singkatan).
+Jika ragu antara chat/command, pilih yang paling masuk akal berdasarkan konteks percakapan.
 
-FORMAT OUTPUT:
-{"action":"open","target":"<url/app>","reply":"<pesan singkat>"}
-{"action":"shell","command":"<windows command>","reply":"<pesan singkat>"}
-{"action":"playaudio","filepath":"<path>","reply":"<pesan singkat>"}
-{"action":"screenshot","reply":"<pesan singkat>"}
-{"action":"sendfile","filepath":"<path>","reply":"<pesan singkat>"}
-{"action":"readfile","filepath":"<path>","reply":"<pesan singkat>"}
-{"action":"reviewfile","filepath":"<path>","question":"<pertanyaan>","reply":"<pesan singkat>"}
-{"action":"sysinfo","reply":"<pesan singkat>"}
-{"action":"randomvideo","query":"<keyword>","site":"<domain>","reply":"<pesan singkat>"}
+FORMAT OUTPUT (respond HANYA JSON murni, tanpa markdown/backtick):
+{"action":"open","target":"<url/app>","reply":"<pesan>"}
+{"action":"shell","command":"<windows command — BEBAS panjang & complex>","reply":"<pesan>"}
+{"action":"playaudio","filepath":"<path>","reply":"<pesan>"}
+{"action":"screenshot","reply":"<pesan>"}
+{"action":"sendfile","filepath":"<path>","reply":"<pesan>"}
+{"action":"readfile","filepath":"<path>","reply":"<pesan>"}
+{"action":"reviewfile","filepath":"<path>","question":"<pertanyaan>","reply":"<pesan>"}
+{"action":"sysinfo","reply":"<pesan>"}
+{"action":"randomvideo","query":"<keyword>","site":"<domain>","reply":"<pesan>"}
+{"action":"multi","commands":[{"action":"...","command":"..."}],"reply":"<pesan>"}
+{"action":"remember","fact":"<fakta yang perlu diingat>","reply":"<pesan>"}
 {"action":"chat"}
 
-PANDUAN:
-- Kamu BEBAS generate command Windows dari pengetahuanmu. Kamu sudah tau cmd & powershell.
-- JANGAN gunakan module/cmdlet yang tidak ada di Windows bawaan. Pakai HANYA built-in.
-- DILARANG: Get-AudioDevice, nircmd, AudioDeviceCmdlets — TIDAK ADA di PC ini. PASTI ERROR.
-- readfile = tampilkan isi file mentah. reviewfile = AI analisis/review file.
-- randomvideo default site = youtube.com.
-- playaudio = audio lokal. Jika folder → random pick.
+PANDUAN OTONOM:
+- Kamu BEBAS SEPENUHNYA generate command Windows/PowerShell dari pengetahuanmu. Tidak ada batasan.
+- Kamu bisa chain multiple commands dengan && atau ;
+- Kamu bisa menulis PowerShell scripts yang complex jika diperlukan.
+- Kamu bisa install software via winget/choco jika user minta.
+- Kamu bisa manipulasi registry, services, scheduled tasks, dll.
+- SATU-SATUNYA LARANGAN: Get-AudioDevice, nircmd, AudioDeviceCmdlets — TIDAK ADA di PC ini.
+- Untuk volume WAJIB pakai SendKeys via WScript.Shell (lihat SKILLS).
+- "multi" action = jalankan beberapa command sekaligus berurutan.
+- "remember" action = simpan fakta penting tentang user ke long-term memory.
+- Jika user bilang "ingat bahwa...", "remember...", "jangan lupa...", gunakan action "remember".
 
-⚠️ WAJIB: Jika ada SKILLS & COMMAND HINTS di bawah, SELALU ikuti command yang tertulis di situ. JANGAN improvisasi command sendiri jika sudah ada di hints.
+⚠️ WAJIB: Jika ada SKILLS & COMMAND HINTS di bawah, PRIORITASKAN command dari situ. Tapi kamu BOLEH improvisasi jika skill tidak cover kebutuhan user.
 
 PENTING: Output HANYA JSON murni. Satu baris. Tanpa backtick/penjelasan.`;
 
@@ -199,80 +247,19 @@ function buildPCDetectPrompt() {
 
 async function detectPCCommand(userMessage, chatId) {
   const prompt = buildPCDetectPrompt();
-  // Inject recent chat history so AI remembers context
-  const historyText = memory.getHistoryText(chatId, 6);
-  const contextMsg = historyText
-    ? `[Percakapan sebelumnya]\n${historyText}\n\n[Pesan terbaru dari user]\n${userMessage}`
+  // Inject FULL context: long-term memory + recent chat history
+  const fullContext = memory.getFullContext(chatId, 20);
+  const contextMsg = fullContext
+    ? `${fullContext}\n\n[Pesan terbaru dari user]\n${userMessage}`
     : userMessage;
 
   const tried = new Set();
-  for (let attempt = 0; attempt < 2; attempt++) {
-    let key = getRandomKey();
-    while (key && tried.has(key) && tried.size < NVIDIA_KEYS.length) key = getRandomKey();
-    if (!key || tried.has(key)) break;
-    tried.add(key);
+  // Use the user's selected model for detection too (Mistral 675B, etc.)
+  const detectModel = getChatModel(chatId);
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
-
-    try {
-      const res = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${key}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'moonshotai/kimi-k2-instruct-0905',
-          messages: [
-            { role: 'system', content: prompt },
-            { role: 'user', content: contextMsg },
-          ],
-          max_tokens: 256,
-          temperature: 0.1,
-        }),
-        signal: controller.signal,
-      });
-
-      if (res.status === 429) { clearTimeout(timeout); continue; }
-
-      const data = await res.json();
-      const raw = (data.choices?.[0]?.message?.content || '').trim();
-      clearTimeout(timeout);
-
-      // Parse JSON from response (handle possible markdown wrapping)
-      const jsonStr = raw.replace(/^```json?\s*/i, '').replace(/```\s*$/, '').trim();
-      try {
-        return JSON.parse(jsonStr);
-      } catch {
-        console.log('PC detect parse failed:', raw);
-        return { action: 'chat' };
-      }
-    } catch (e) {
-      clearTimeout(timeout);
-      continue;
-    }
-  }
-  return { action: 'chat' };
-}
-
-async function callAI(userMessage, modelOverride, chatId) {
-  const model = modelOverride || DEFAULT_MODEL;
-
-  // Build messages with memory context
-  const messages = [{ role: 'system', content: SYSTEM_PROMPT }];
-  if (chatId) {
-    const history = memory.getHistory(chatId, 10);
-    messages.push(...history);
-  }
-  messages.push({ role: 'user', content: userMessage });
-
-  const tried = new Set();
   for (let attempt = 0; attempt < 3; attempt++) {
     let key = getRandomKey();
-    while (key && tried.has(key) && tried.size < NVIDIA_KEYS.length) {
-      key = getRandomKey();
-    }
+    while (key && tried.has(key) && tried.size < NVIDIA_KEYS.length) key = getRandomKey();
     if (!key || tried.has(key)) break;
     tried.add(key);
 
@@ -287,9 +274,88 @@ async function callAI(userMessage, modelOverride, chatId) {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
+          model: detectModel,
+          messages: [
+            { role: 'system', content: prompt },
+            { role: 'user', content: contextMsg },
+          ],
+          max_tokens: 512,
+          temperature: 0.1,
+        }),
+        signal: controller.signal,
+      });
+
+      if (res.status === 429) { clearTimeout(timeout); continue; }
+
+      const data = await res.json();
+      const raw = (data.choices?.[0]?.message?.content || '').trim();
+      clearTimeout(timeout);
+
+      // Parse JSON from response (handle markdown wrapping, thinking tags, extra text)
+      let jsonStr = raw.replace(/^```json?\s*/i, '').replace(/```\s*$/, '').trim();
+      // Remove <think>...</think> blocks if present (some models do this)
+      jsonStr = jsonStr.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+      // Extract first JSON object if there's extra text around it
+      const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
+      if (jsonMatch) jsonStr = jsonMatch[0];
+      try {
+        return JSON.parse(jsonStr);
+      } catch {
+        console.log('PC detect parse failed:', raw.slice(0, 300));
+        return { action: 'chat' };
+      }
+    } catch (e) {
+      clearTimeout(timeout);
+      continue;
+    }
+  }
+  return { action: 'chat' };
+}
+
+async function callAI(userMessage, modelOverride, chatId) {
+  const model = modelOverride || DEFAULT_MODEL;
+
+  // Build system prompt with long-term memory injected
+  let systemContent = SYSTEM_PROMPT;
+  if (chatId) {
+    const longMemories = memory.getMemories(chatId);
+    if (longMemories.length > 0) {
+      systemContent += '\n\n[LONG-TERM MEMORY — fakta penting tentang user ini]:\n' +
+        longMemories.map(m => '- ' + m).join('\n');
+    }
+  }
+
+  // Build messages with memory context
+  const messages = [{ role: 'system', content: systemContent }];
+  if (chatId) {
+    const history = memory.getHistory(chatId, 30);
+    messages.push(...history);
+  }
+  messages.push({ role: 'user', content: userMessage });
+
+  const tried = new Set();
+  for (let attempt = 0; attempt < 3; attempt++) {
+    let key = getRandomKey();
+    while (key && tried.has(key) && tried.size < NVIDIA_KEYS.length) {
+      key = getRandomKey();
+    }
+    if (!key || tried.has(key)) break;
+    tried.add(key);
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 55000); // 55s timeout for 8192 max_tokens
+
+    try {
+      const res = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${key}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
           model,
           messages,
-          max_tokens: 1024,
+          max_tokens: 8192,
         }),
         signal: controller.signal,
       });
@@ -734,6 +800,54 @@ Kamu bertiga adalah AI bot berbeda tapi bisa saling baca chat. Singkat 1-3 kalim
     }
 
     // ========================
+    // MEMORY COMMANDS
+    // ========================
+
+    // /memory — show long-term memories
+    if (text === '/memory') {
+      const memories = memory.getMemories(chatId);
+      if (memories.length === 0) {
+        await sendMessage(chatId, 'Belum ada memory tersimpan. Chat aja dan aku akan otomatis ingat hal penting!');
+      } else {
+        let memText = `*Long-term Memory (${memories.length} items):*\n\n`;
+        memories.forEach((m, i) => { memText += `${i + 1}. ${m}\n`; });
+        await sendMessage(chatId, memText);
+      }
+      return res.status(200).send('OK');
+    }
+
+    // /remember <fact> — manually save a fact
+    if (text.startsWith('/remember ')) {
+      const fact = text.replace(/^\/remember\s+/, '').trim();
+      if (fact) {
+        memory.remember(chatId, fact);
+        await sendMessage(chatId, `Tersimpan di memory: "${fact}"`);
+      } else {
+        await sendMessage(chatId, 'Usage: `/remember fakta yang ingin disimpan`');
+      }
+      return res.status(200).send('OK');
+    }
+
+    // /forget <keyword> — remove memories matching keyword
+    if (text.startsWith('/forget ')) {
+      const keyword = text.replace(/^\/forget\s+/, '').trim();
+      if (keyword) {
+        memory.forget(chatId, keyword);
+        await sendMessage(chatId, `Memory yang mengandung "${keyword}" sudah dihapus.`);
+      } else {
+        await sendMessage(chatId, 'Usage: `/forget keyword`');
+      }
+      return res.status(200).send('OK');
+    }
+
+    // /clearmemory — clear ALL memory
+    if (text === '/clearmemory') {
+      memory.clearMemory(chatId);
+      await sendMessage(chatId, 'Semua memory (chat history + long-term) sudah dihapus.');
+      return res.status(200).send('OK');
+    }
+
+    // ========================
     // PC REMOTE COMMANDS
     // ========================
 
@@ -813,7 +927,12 @@ Kamu bertiga adalah AI bot berbeda tapi bisa saling baca chat. Singkat 1-3 kalim
           '/ss — Screenshot PC\n' +
           '/pcstatus — Cek queue\n' +
           '/model — Ganti AI model\n\n' +
-          'Chat biasa → dijawab AI!'
+          '*Memory:*\n' +
+          '/memory — Lihat semua memory\n' +
+          '/remember <fakta> — Simpan fakta\n' +
+          '/forget <keyword> — Hapus memory\n' +
+          '/clearmemory — Hapus semua\n\n' +
+          'Chat biasa → dijawab AI dengan MEMORY!'
       );
     } else if (text && !text.startsWith('/')) {
       // Smart detection: PC command or regular chat?
@@ -901,11 +1020,143 @@ Kamu bertiga adalah AI bot berbeda tapi bisa saling baca chat. Singkat 1-3 kalim
           return res.status(200).send('OK');
         }
 
-        // Step 2: Not a PC command → regular AI chat (with memory)
+        // Handle "remember" action — save to long-term memory
+        if (detected.action === 'remember' && detected.fact) {
+          memory.remember(chatId, detected.fact);
+          await sendMessage(chatId, detected.reply || `Oke, aku ingat: "${detected.fact}"`);
+          memory.addMessage(chatId, 'assistant', detected.reply || `Saved to memory: ${detected.fact}`);
+          return res.status(200).send('OK');
+        }
+
+        // Handle X Auto Engage — baca tweet + AI komentar + auto reply
+        const xEngageActions = ['read_tweet','engage_tweet'];
+        if (xEngageActions.includes(detected.action)) {
+          const engage = require('../public/skills/x-auto-engage');
+          await sendMessage(chatId, detected.reply || `Membaca tweet...`);
+          try {
+            if (detected.action === 'read_tweet') {
+              const tweet = await engage.readTweet(detected.tweetUrl);
+              await sendMessage(chatId,
+                `📖 *${tweet.displayName}* (${tweet.username})\n\n${tweet.text}\n\n🕐 ${tweet.time}`
+              );
+            } else if (detected.action === 'engage_tweet') {
+              const res = await engage.engageTweet(detected.tweetUrl, {
+                persona:       detected.persona || 'friendly',
+                autoLike:      detected.autoLike || false,
+                submit:        detected.submit !== false,
+                customComment: detected.customComment || null,
+              });
+              await sendMessage(chatId,
+                `✅ Auto engage selesai!\n\n` +
+                `📝 Tweet: ${res.tweet?.text?.substring(0, 80)}...\n` +
+                `💬 Komentar AI: "${res.comment}"\n` +
+                `❤️ Liked: ${res.liked ? 'Ya' : 'Tidak'}\n` +
+                `↩️ Replied: ${res.replied ? 'Terkirim' : 'Preview'}`
+              );
+            }
+          } catch (e) {
+            await sendMessage(chatId, `❌ Gagal: ${e.message}`);
+          }
+          return res.status(200).send('OK');
+        }
+
+        // Handle semua aksi X/Twitter via Chrome CDP
+        const xActions = ['post_x','reply_x','quote_x','like_x','unlike_x','read_replies','read_mentions'];
+        if (xActions.includes(detected.action)) {
+          const socialX = require('../public/skills/social-post-x');
+          const submit = detected.submit !== false;
+          await sendMessage(chatId, detected.reply || `Membuka Chrome...`);
+          try {
+            let out = '';
+            if (detected.action === 'post_x') {
+              out = await socialX.postTweet(detected.text, detected.images || [], submit);
+              await sendMessage(chatId, `✅ Tweet dipost!\n\`${out}\``);
+
+            } else if (detected.action === 'reply_x') {
+              out = await socialX.replyToTweet(detected.tweetUrl, detected.text, submit);
+              await sendMessage(chatId, `✅ Reply terkirim!\n\`${out}\``);
+
+            } else if (detected.action === 'quote_x') {
+              out = await socialX.quoteTweet(detected.tweetUrl, detected.text || '', submit);
+              await sendMessage(chatId, `✅ Quote tweet terkirim!\n\`${out}\``);
+
+            } else if (detected.action === 'like_x') {
+              out = await socialX.likeTweet(detected.tweetUrl, false);
+              await sendMessage(chatId, `❤️ Tweet dilike!\n\`${out}\``);
+
+            } else if (detected.action === 'unlike_x') {
+              out = await socialX.likeTweet(detected.tweetUrl, true);
+              await sendMessage(chatId, `💔 Tweet di-unlike!\n\`${out}\``);
+
+            } else if (detected.action === 'read_replies') {
+              out = await socialX.readReplies(detected.tweetUrl, detected.limit || 10);
+              await sendMessage(chatId, `💬 Komentar tweet:\n\`\`\`\n${out}\n\`\`\``);
+
+            } else if (detected.action === 'read_mentions') {
+              out = await socialX.readMentions(detected.limit || 10);
+              await sendMessage(chatId, `🔔 Mentions kamu:\n\`\`\`\n${out}\n\`\`\``);
+            }
+          } catch (e) {
+            await sendMessage(chatId, `❌ Gagal ${detected.action}: ${e.message}`);
+          }
+          return res.status(200).send('OK');
+        }
+
+        // Handle "social" action — post ke media sosial
+        if (detected.action === 'social' && detected.text) {
+          const socialSkill = require('./_skills/social-media');
+          const platformRaw = (detected.platform || 'all').toLowerCase();
+          let platforms;
+          if (platformRaw === 'all') {
+            platforms = ['twitter', 'facebook', 'linkedin', 'instagram'];
+          } else {
+            platforms = platformRaw.split(',').map(p => p.trim());
+          }
+          await sendMessage(chatId, detected.reply || `Posting ke ${platforms.join(', ')}...`);
+          try {
+            const results = await socialSkill.postToAll({
+              text: detected.text,
+              imageUrl: detected.imageUrl || null,
+              platforms,
+            });
+            const summary = results.map(r =>
+              r.ok ? `✅ ${r.platform}${r.url ? ' — ' + r.url : ''}` : `❌ ${r.platform}: ${r.error}`
+            ).join('\n');
+            await sendMessage(chatId, `Hasil posting:\n${summary}`);
+          } catch (e) {
+            await sendMessage(chatId, `Error social posting: ${e.message}`);
+          }
+          return res.status(200).send('OK');
+        }
+
+        // Handle "multi" action — queue multiple commands sequentially
+        if (detected.action === 'multi' && Array.isArray(detected.commands)) {
+          for (const cmd of detected.commands) {
+            if (cmd.action === 'shell' && cmd.command) {
+              pushCommand('shell', cmd.command, chatId);
+            } else if (cmd.action === 'open' && cmd.target) {
+              pushCommand('open', cmd.target, chatId);
+            } else if (cmd.action === 'screenshot') {
+              pushCommand('screenshot', '', chatId);
+            } else if (cmd.action === 'playaudio' && cmd.filepath) {
+              pushCommand('playaudio', cmd.filepath, chatId);
+            }
+          }
+          await sendMessage(chatId, detected.reply || `Menjalankan ${detected.commands.length} perintah...`);
+          return res.status(200).send('OK');
+        }
+
+        // Step 2: Not a PC command → regular AI chat (with full memory)
         const aiResponse = await callAI(text, getChatModel(chatId), chatId);
         if (aiResponse) {
-          memory.addMessage(chatId, 'assistant', aiResponse);
-          await sendMessage(chatId, aiResponse);
+          // Auto-detect [REMEMBER: ...] in AI response for auto-memory
+          const rememberMatch = aiResponse.match(/\[REMEMBER:\s*(.+?)\]/i);
+          if (rememberMatch) {
+            memory.remember(chatId, rememberMatch[1].trim());
+          }
+          const cleanResponse = aiResponse.replace(/\[REMEMBER:\s*.+?\]/gi, '').trim();
+          memory.addMessage(chatId, 'assistant', cleanResponse);
+          await sendMessage(chatId, cleanResponse);
         } else {
           await sendMessage(chatId, 'Maaf, AI tidak memberikan respons. Coba lagi nanti.');
         }

@@ -1,39 +1,36 @@
 /**
- * Skills Auto-Loader
- * Loads all .js skill files from this folder and combines their hints.
+ * Skills Loader — Explicit requires (Vercel-safe, no fs.readdirSync)
  * Each skill exports: { name: string, hints: string }
  */
-const fs = require('fs');
-const path = require('path');
 
-function loadAllSkills() {
-  const skillsDir = __dirname;
-  const hints = [];
+const skills = [
+  require('./brightness'),
+  require('./clipboard'),
+  require('./file-execute'),
+  require('./file-management'),
+  require('./keyboard-mouse'),
+  require('./network-info'),
+  require('./notification'),
+  require('./power'),
+  require('./search-safety'),
+  require('./social-media'),
+  require('./system-monitor'),
+  require('./volume'),
+  require('./window-management'),
+  require('../../public/skills/social-post-x'),
+  require('../../public/skills/x-auto-engage'),
+];
 
-  try {
-    const files = fs.readdirSync(skillsDir).filter(f => f.endsWith('.js') && f !== 'index.js');
-    for (const file of files) {
-      try {
-        const skill = require(path.join(skillsDir, file));
-        if (skill.hints) {
-          hints.push(skill.hints);
-        }
-      } catch (e) {
-        console.error(`Skill load error (${file}):`, e.message);
-      }
-    }
-  } catch (e) {
-    console.error('Skills dir error:', e.message);
-  }
-
-  return hints.join('\n\n');
-}
-
-// Cache on first load
 let _cached = null;
 function getSkillHints() {
-  if (_cached === null) _cached = loadAllSkills();
+  if (_cached === null) {
+    _cached = skills.filter(s => s.hints).map(s => s.hints).join('\n\n');
+  }
   return _cached;
+}
+
+function loadAllSkills() {
+  return getSkillHints();
 }
 
 module.exports = { getSkillHints, loadAllSkills };
