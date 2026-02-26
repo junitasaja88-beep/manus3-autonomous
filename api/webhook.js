@@ -220,6 +220,14 @@ FORMAT OUTPUT (respond HANYA JSON murni, tanpa markdown/backtick):
 {"action":"randomvideo","query":"<keyword>","site":"<domain>","reply":"<pesan>"}
 {"action":"multi","commands":[{"action":"...","command":"..."}],"reply":"<pesan>"}
 {"action":"remember","fact":"<fakta yang perlu diingat>","reply":"<pesan>"}
+{"action":"post_x","text":"<isi tweet>","reply":"<pesan>"}
+{"action":"reply_x","tweetUrl":"<url tweet>","text":"<balasan>","reply":"<pesan>"}
+{"action":"like_x","tweetUrl":"<url tweet>","reply":"<pesan>"}
+{"action":"unlike_x","tweetUrl":"<url tweet>","reply":"<pesan>"}
+{"action":"engage_tweet","tweetUrl":"<url>","persona":"friendly|witty|hype|thoughtful","lang":"en|id|auto","autoLike":true,"reply":"<pesan>"}
+{"action":"read_tweet","tweetUrl":"<url tweet>","reply":"<pesan>"}
+{"action":"read_replies","tweetUrl":"<url tweet>","limit":10,"reply":"<pesan>"}
+{"action":"read_mentions","limit":10,"reply":"<pesan>"}
 {"action":"chat"}
 
 PANDUAN OTONOM:
@@ -233,6 +241,8 @@ PANDUAN OTONOM:
 - "multi" action = jalankan beberapa command sekaligus berurutan.
 - "remember" action = simpan fakta penting tentang user ke long-term memory.
 - Jika user bilang "ingat bahwa...", "remember...", "jangan lupa...", gunakan action "remember".
+
+TWITTER/X: Jika user minta "tweet", "posting ke X", "komentari tweet", "like tweet", "baca mentions" — WAJIB gunakan action post_x/reply_x/like_x/engage_tweet dll. JANGAN pakai shell untuk ini.
 
 ⚠️ WAJIB: Jika ada SKILLS & COMMAND HINTS di bawah, PRIORITASKAN command dari situ. Tapi kamu BOLEH improvisasi jika skill tidak cover kebutuhan user.
 
