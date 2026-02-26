@@ -69,30 +69,29 @@ module.exports = {
   readMentions,
 
   hints: `
-X/TWITTER — semua aksi via Chrome (tanpa API key):
+X/TWITTER — WAJIB gunakan action berikut, JANGAN generate shell command sendiri:
 
-Post tweet baru:
-{"action":"post_x","text":"Halo dari Manus! 🤖 #AI","submit":true,"reply":"Posting ke X..."}
+Post tweet baru → GUNAKAN action "post_x":
+{"action":"post_x","text":"<isi tweet>","reply":"Posting ke X..."}
 
-Balas tweet orang (butuh URL tweet):
-{"action":"reply_x","tweetUrl":"https://x.com/user/status/123","text":"Keren banget!","submit":true,"reply":"Membalas tweet..."}
+Balas tweet → GUNAKAN action "reply_x":
+{"action":"reply_x","tweetUrl":"<url>","text":"<balasan>","reply":"Membalas tweet..."}
 
-Quote tweet dengan komentar:
-{"action":"quote_x","tweetUrl":"https://x.com/user/status/123","text":"Setuju banget!","submit":true,"reply":"Quote tweet..."}
+Like tweet → GUNAKAN action "like_x":
+{"action":"like_x","tweetUrl":"<url>","reply":"Menyukai tweet..."}
 
-Like tweet:
-{"action":"like_x","tweetUrl":"https://x.com/user/status/123","reply":"Menyukai tweet..."}
+Unlike tweet → GUNAKAN action "unlike_x":
+{"action":"unlike_x","tweetUrl":"<url>","reply":"Unlike tweet..."}
 
-Unlike tweet:
-{"action":"unlike_x","tweetUrl":"https://x.com/user/status/123","reply":"Unlike tweet..."}
+Baca komentar tweet → GUNAKAN action "read_replies":
+{"action":"read_replies","tweetUrl":"<url>","limit":10,"reply":"Membaca komentar..."}
 
-Baca komentar/replies dari tweet:
-{"action":"read_replies","tweetUrl":"https://x.com/user/status/123","limit":10,"reply":"Membaca komentar..."}
-
-Baca mentions (notifikasi @username):
+Baca mentions → GUNAKAN action "read_mentions":
 {"action":"read_mentions","limit":10,"reply":"Membaca mentions..."}
 
-Post dengan gambar:
-{"action":"post_x","text":"Lihat ini!","images":["C:\\\\Users\\\\cc\\\\foto.png"],"submit":true,"reply":"Posting foto ke X..."}
+Auto baca + komentar AI → GUNAKAN action "engage_tweet":
+{"action":"engage_tweet","tweetUrl":"<url>","persona":"witty","lang":"en","autoLike":true,"reply":"Auto komentari tweet..."}
+
+⚠️ PENTING: Untuk semua aksi Twitter/X, SELALU gunakan action di atas. JANGAN pernah generate shell/npx command manual untuk Twitter.
 `.trim(),
 };
