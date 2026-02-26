@@ -1028,76 +1028,49 @@ Kamu bertiga adalah AI bot berbeda tapi bisa saling baca chat. Singkat 1-3 kalim
           return res.status(200).send('OK');
         }
 
-        // Handle X Auto Engage — baca tweet + AI komentar + auto reply
-        const xEngageActions = ['read_tweet','engage_tweet'];
-        if (xEngageActions.includes(detected.action)) {
-          const engage = require('../public/skills/x-auto-engage');
-          await sendMessage(chatId, detected.reply || `Membaca tweet...`);
-          try {
-            if (detected.action === 'read_tweet') {
-              const tweet = await engage.readTweet(detected.tweetUrl);
-              await sendMessage(chatId,
-                `📖 *${tweet.displayName}* (${tweet.username})\n\n${tweet.text}\n\n🕐 ${tweet.time}`
-              );
-            } else if (detected.action === 'engage_tweet') {
-              const res = await engage.engageTweet(detected.tweetUrl, {
-                persona:       detected.persona || 'friendly',
-                autoLike:      detected.autoLike || false,
-                submit:        detected.submit !== false,
-                customComment: detected.customComment || null,
-              });
-              await sendMessage(chatId,
-                `✅ Auto engage selesai!\n\n` +
-                `📝 Tweet: ${res.tweet?.text?.substring(0, 80)}...\n` +
-                `💬 Komentar AI: "${res.comment}"\n` +
-                `❤️ Liked: ${res.liked ? 'Ya' : 'Tidak'}\n` +
-                `↩️ Replied: ${res.replied ? 'Terkirim' : 'Preview'}`
-              );
-            }
-          } catch (e) {
-            await sendMessage(chatId, `❌ Gagal: ${e.message}`);
+        // Handle semua aksi X/Twitter — queue ke local gateway (butuh Chrome di PC)
+        const xAllActions = ['post_x','reply_x','quote_x','like_x','unlike_x',
+                             'read_replies','read_mentions','read_tweet','engage_tweet'];
+        if (xAllActions.includes(detected.action)) {
+          // Bangun node command yang akan dijalankan di PC lokal via gateway
+          const SKILL_DIR = 'D:\\.agents\\skills\\baoyu-post-to-x\\scripts';
+          const MANUS_DIR = 'D:\\manus3';
+          let cmd = '';
+
+          if (detected.action === 'post_x') {
+            const txt = (detected.text || '').replace(/"/g, '\\"');
+            const imgs = (detected.images || []).map(p => `--image "${p}"`).join(' ');
+            cmd = `node -e "require('dotenv').config({path:'${MANUS_DIR}\\\\.env'});require('child_process').execSync('npx -y bun \\"${SKILL_DIR}\\\\x-browser.ts\\" \\"${txt}\\" ${imgs} --submit',{stdio:'inherit',env:{...process.env,X_BROWSER_CHROME_PATH:'C:\\\\Program Files\\\\Google\\\\Chrome\\\\Application\\\\chrome.exe'}})"`;
+
+          } else if (detected.action === 'reply_x') {
+            const txt = (detected.text || '').replace(/"/g, '\\"');
+            cmd = `node -e "require('child_process').execSync('npx -y bun \\"${SKILL_DIR}\\\\x-reply.ts\\" \\"${detected.tweetUrl}\\" \\"${txt}\\" --submit',{stdio:'inherit',env:{...process.env,X_BROWSER_CHROME_PATH:'C:\\\\Program Files\\\\Google\\\\Chrome\\\\Application\\\\chrome.exe'}})"`;
+
+          } else if (detected.action === 'like_x' || detected.action === 'unlike_x') {
+            const flag = detected.action === 'unlike_x' ? '--unlike' : '';
+            cmd = `node -e "require('child_process').execSync('npx -y bun \\"${SKILL_DIR}\\\\x-like.ts\\" \\"${detected.tweetUrl}\\" ${flag}',{stdio:'inherit',env:{...process.env,X_BROWSER_CHROME_PATH:'C:\\\\Program Files\\\\Google\\\\Chrome\\\\Application\\\\chrome.exe'}})"`;
+
+          } else if (detected.action === 'read_replies') {
+            const lim = detected.limit || 10;
+            cmd = `node -e "require('child_process').execSync('npx -y bun \\"${SKILL_DIR}\\\\x-read-replies.ts\\" \\"${detected.tweetUrl}\\" --limit ${lim}',{stdio:'inherit',env:{...process.env,X_BROWSER_CHROME_PATH:'C:\\\\Program Files\\\\Google\\\\Chrome\\\\Application\\\\chrome.exe'}})"`;
+
+          } else if (detected.action === 'read_mentions') {
+            const lim = detected.limit || 10;
+            cmd = `node -e "require('child_process').execSync('npx -y bun \\"${SKILL_DIR}\\\\x-mentions.ts\\" --limit ${lim}',{stdio:'inherit',env:{...process.env,X_BROWSER_CHROME_PATH:'C:\\\\Program Files\\\\Google\\\\Chrome\\\\Application\\\\chrome.exe'}})"`;
+
+          } else if (detected.action === 'read_tweet') {
+            cmd = `node -e "require('child_process').execSync('npx -y bun \\"${SKILL_DIR}\\\\x-read-tweet.ts\\" \\"${detected.tweetUrl}\\"',{stdio:'inherit',env:{...process.env,X_BROWSER_CHROME_PATH:'C:\\\\Program Files\\\\Google\\\\Chrome\\\\Application\\\\chrome.exe'}})"`;
+
+          } else if (detected.action === 'engage_tweet') {
+            const persona = detected.persona || 'friendly';
+            const lang = detected.lang || 'auto';
+            const like = detected.autoLike ? 'true' : 'false';
+            cmd = `node -e "require('dotenv').config({path:'${MANUS_DIR}\\\\.env'});const e=require('${MANUS_DIR}\\\\public\\\\skills\\\\x-auto-engage');e.engageTweet('${detected.tweetUrl}',{persona:'${persona}',lang:'${lang}',autoLike:${like},submit:true}).then(r=>console.log('Done! Comment:',r.comment)).catch(e=>console.error(e.message))"`;
           }
-          return res.status(200).send('OK');
-        }
 
-        // Handle semua aksi X/Twitter via Chrome CDP
-        const xActions = ['post_x','reply_x','quote_x','like_x','unlike_x','read_replies','read_mentions'];
-        if (xActions.includes(detected.action)) {
-          const socialX = require('../public/skills/social-post-x');
-          const submit = detected.submit !== false;
-          await sendMessage(chatId, detected.reply || `Membuka Chrome...`);
-          try {
-            let out = '';
-            if (detected.action === 'post_x') {
-              out = await socialX.postTweet(detected.text, detected.images || [], submit);
-              await sendMessage(chatId, `✅ Tweet dipost!\n\`${out}\``);
-
-            } else if (detected.action === 'reply_x') {
-              out = await socialX.replyToTweet(detected.tweetUrl, detected.text, submit);
-              await sendMessage(chatId, `✅ Reply terkirim!\n\`${out}\``);
-
-            } else if (detected.action === 'quote_x') {
-              out = await socialX.quoteTweet(detected.tweetUrl, detected.text || '', submit);
-              await sendMessage(chatId, `✅ Quote tweet terkirim!\n\`${out}\``);
-
-            } else if (detected.action === 'like_x') {
-              out = await socialX.likeTweet(detected.tweetUrl, false);
-              await sendMessage(chatId, `❤️ Tweet dilike!\n\`${out}\``);
-
-            } else if (detected.action === 'unlike_x') {
-              out = await socialX.likeTweet(detected.tweetUrl, true);
-              await sendMessage(chatId, `💔 Tweet di-unlike!\n\`${out}\``);
-
-            } else if (detected.action === 'read_replies') {
-              out = await socialX.readReplies(detected.tweetUrl, detected.limit || 10);
-              await sendMessage(chatId, `💬 Komentar tweet:\n\`\`\`\n${out}\n\`\`\``);
-
-            } else if (detected.action === 'read_mentions') {
-              out = await socialX.readMentions(detected.limit || 10);
-              await sendMessage(chatId, `🔔 Mentions kamu:\n\`\`\`\n${out}\n\`\`\``);
-            }
-          } catch (e) {
-            await sendMessage(chatId, `❌ Gagal ${detected.action}: ${e.message}`);
+          if (cmd) {
+            pushCommand('shell', cmd, chatId);
+            await sendMessage(chatId, detected.reply || `⏳ Mengirim ke PC lokal... (butuh Chrome & gateway aktif)`);
           }
           return res.status(200).send('OK');
         }
