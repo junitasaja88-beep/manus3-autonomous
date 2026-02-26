@@ -1048,12 +1048,12 @@ Kamu bertiga adalah AI bot berbeda tapi bisa saling baca chat. Singkat 1-3 kalim
           let scriptContent = '';
 
           if (detected.action === 'post_x') {
-            const txt = (detected.text || '').replace(/"/g, '\\"');
+            const txt = (detected.text || '').replace(/\n/g, ' ').replace(/\r/g, '').replace(/"/g, '\\"');
             const imgs = (detected.images || []).map(p => `,"${p}"`).join('');
             scriptContent = `require("dotenv").config({path:"D:/manus3/.env"});const {execFileSync}=require("child_process");execFileSync("npx",["-y","bun","${SD}/x-browser.ts","${txt}"${imgs},"--submit"],{stdio:"inherit",shell:true,env:{...process.env,X_BROWSER_CHROME_PATH:"${CH}"}});`;
 
           } else if (detected.action === 'reply_x') {
-            const txt = (detected.text || '').replace(/"/g, '\\"');
+            const txt = (detected.text || '').replace(/\n/g, ' ').replace(/\r/g, '').replace(/"/g, '\\"');
             scriptContent = `require("dotenv").config({path:"D:/manus3/.env"});const {execFileSync}=require("child_process");execFileSync("npx",["-y","bun","${SD}/x-reply.ts","${detected.tweetUrl}","${txt}","--submit"],{stdio:"inherit",shell:true,env:{...process.env,X_BROWSER_CHROME_PATH:"${CH}"}});`;
 
           } else if (detected.action === 'like_x' || detected.action === 'unlike_x') {
