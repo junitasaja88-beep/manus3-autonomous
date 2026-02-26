@@ -564,9 +564,12 @@ Jawab pertanyaan user tentang file ini. Jawab dalam bahasa yang sama dengan pert
         const grokIdx = output ? output.indexOf('__GROK__:') : -1;
         let text;
         if (grokIdx !== -1) {
-          const grokResp = output.substring(grokIdx + '__GROK__:'.length).split('\n')[0].trim();
-          text = grokResp.length > 5
-            ? `🤖 *Grok AI:*\n${grokResp.slice(0, 3500)}`
+          // Take everything after __GROK__: — response can be multi-line
+          const grokResp = output.substring(grokIdx + '__GROK__:'.length).trim();
+          // Remove any trailing timing info like "[123456ms]"
+          const cleanResp = grokResp.replace(/\n\n\[\d+ms\]\s*$/, '').trim();
+          text = cleanResp.length > 5
+            ? `🤖 *Grok AI:*\n${cleanResp.slice(0, 3500)}`
             : `*PC Result:*\n\`\`\`\n${(output||'').slice(0, 3500)}\n\`\`\``;
         } else {
           text = output
@@ -1057,7 +1060,9 @@ Kamu bertiga adalah AI bot berbeda tapi bisa saling baca chat. Singkat 1-3 kalim
         if (detected.action === 'grok_chat' && detected.prompt) {
           const SD = 'D:/.agents/skills/baoyu-post-to-x/scripts';
           const CH = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
-          const promptEsc = (detected.prompt || '').replace(/\\/g,'\\\\').replace(/"/g,'\\"').replace(/\n/g,' ');
+          // Trim prompt to avoid Grok UI issues — max 500 chars
+          const rawPrompt = (detected.prompt || text || '').substring(0, 500);
+          const promptEsc = rawPrompt.replace(/\\/g,'\\\\').replace(/"/g,'\\"').replace(/\n/g,' ').replace(/\r/g,'');
           const waitSecs = detected.wait || 45;
           const scriptContent = `
 const {execSync}=require("child_process");
